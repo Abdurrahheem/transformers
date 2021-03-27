@@ -5,10 +5,11 @@ from torch import nn
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, k, heads=8):
+    def __init__(self, k, heads=8, masked=False):
         super().__init__()
         self.k, self.heads = k, heads
-        
+        self.masked = masked        
+
         # linear weight parameters that split the x in to three parts
         self.tokeys = nn.Linear(k, k * heads, bias=False) # W.T @ x 
         self.toqueries = nn.Linear(k, k * heads, bias=False)
@@ -30,6 +31,10 @@ class SelfAttention(nn.Module):
             # shape: b t h k
             # shape: b h t t
             weights = torch.einsum('bthk, bihk -> bhti', [queries, keys]) / torch.sqrt(torch.tensor(k)) # shape: b, h, t, t 
+            if self.masked:
+                indicies = torch.triu_indices(t, t, offset=1)
+                weights[:, indicies[0], indicies[1]] = float('-inf')
+
             weights = torch.softmax(weights, dim=-1) # shape: b, h, t, t 
 
             # shape: b h t t_
@@ -49,7 +54,11 @@ class SelfAttention(nn.Module):
 
             # - get dot product of queries and keys, and scale
             dot = torch.bmm(queries, keys.transpose(1, 2))
-            # - dot has size (b*h, t, t) containing raw weights
+            if self.masked:
+                indicies = torch.triu_indices(t, t, offset=1)
+                dot[:, indicies[0], indicies[1]] = float('-inf')
+
+           # - dot has size (b*h, t, t) containing raw weights
             dot = F.softmax(dot, dim=2) 
             out = torch.bmm(dot, values).view(b, h, t, k)
             out = out.transpose(1, 2).contiguous().view(b, t, h * k)
